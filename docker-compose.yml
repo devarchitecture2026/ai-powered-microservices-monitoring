@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: monitoring-postgres
+
+    environment:
+      POSTGRES_DB: api_monitoring
+      POSTGRES_USER: api_user
+      POSTGRES_PASSWORD: api_password
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    restart: unless-stopped
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: monitoring-n8n
+
+    ports:
+      - "5678:5678"
+
+    environment:
+      TZ: Asia/Kolkata
+      N8N_SECURE_COOKIE: "false"
+
+    volumes:
+      - ./n8n/data:/home/node/.n8n
+
+    depends_on:
+      - postgres
+
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

@@ -1,0 +1,19 @@
+# IntelliJ
+.idea/
+*.iml
+
+# Java
+target/
+*.class
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# n8n local data
+n8n/data/
+
+# Environment files
+.env
