@@ -1,0 +1,628 @@
+{
+  "name": "AI-Powered API Monitoring By Poonam",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api-monitoring",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "afed8667-2402-4047-bf57-6fe8c8344319",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        112
+      ],
+      "webhookId": "4509898e-e428-4248-a533-886b09f3355a"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const b = $json.body || {};\nconst missing = [];\nif (!b.serviceName) missing.push('serviceName');\nif (!b.endpoint) missing.push('endpoint');\nif (b.statusCode === undefined || b.statusCode === null || b.statusCode === '') missing.push('statusCode');\nif (missing.length > 0) {\n  throw new Error('Validation failed. Missing required fields: ' + missing.join(', '));\n}\nreturn {\n  json: {\n    serviceName: String(b.serviceName),\n    endpoint: String(b.endpoint),\n    statusCode: Number(b.statusCode),\n    method: b.method || b.httpMethod || null,\n    errorMessage: b.errorMessage || b.message || null,\n    requestPayload: b.requestPayload ? JSON.stringify(b.requestPayload) : null,\n  },\n};"
+      },
+      "id": "38b7c7d0-4eff-40b2-b27c-5ef7580180a0",
+      "name": "Validate Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const code = Number($json.statusCode);\nlet severity = 'LOW';\nif (code >= 500) severity = 'HIGH';\nelse if (code >= 400) severity = 'MEDIUM';\nreturn { json: { ...$json, statusCode: code, severity } };"
+      },
+      "id": "eace342a-387b-4e34-b997-e4d3d35a4da6",
+      "name": "Calculate Severity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "name",
+          "value": "monitoring"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "api_failure_logs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [],
+          "value": {
+            "service_name": "={{ $json.serviceName }}",
+            "endpoint": "={{ $json.endpoint }}",
+            "http_method": "={{ $json.method }}",
+            "status_code": "={{ $json.statusCode }}",
+            "severity": "={{ $json.severity }}",
+            "error_message": "={{ $json.errorMessage }}",
+            "request_payload": "={{ $json.requestPayload }}",
+            "ai_status": "PENDING"
+          },
+          "schema": [
+            {
+              "id": "service_name",
+              "displayName": "service_name",
+              "required": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "endpoint",
+              "displayName": "endpoint",
+              "required": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "http_method",
+              "displayName": "http_method",
+              "required": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status_code",
+              "displayName": "status_code",
+              "required": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "severity",
+              "displayName": "severity",
+              "required": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error_message",
+              "displayName": "error_message",
+              "required": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "request_payload",
+              "displayName": "request_payload",
+              "required": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ai_status",
+              "displayName": "ai_status",
+              "required": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7ef57b28-0c24-4f23-8b3f-2cf629af758c",
+      "name": "Insert Failure",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        672,
+        112
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xmVUSApAmFKzx7Bb",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analyze this failed API request from a Java microservice.\n\nService Name: {{ $('Calculate Severity').item.json.serviceName }}\nEndpoint: {{ $('Calculate Severity').item.json.endpoint }}\nHTTP Method: {{ $('Calculate Severity').item.json.method }}\nStatus Code: {{ $('Calculate Severity').item.json.statusCode }}\nSeverity: {{ $('Calculate Severity').item.json.severity }}\nError Message: {{ $('Calculate Severity').item.json.errorMessage }}\nRequest Payload: {{ $('Calculate Severity').item.json.requestPayload }}",
+        "options": {
+          "systemMessage": "You are a senior Java backend engineer and SRE analyzing API failures.\nRespond with ONLY a single valid JSON object (no markdown, no code fences, no prose) using exactly these keys:\n{\n  \"rootCause\": string,           // probable root cause of the failure\n  \"javaFix\": string,             // concrete Java code fix or change\n  \"unitTest\": string,            // a JUnit unit test covering the fix\n  \"bestPractice\": string,        // a best practice to prevent recurrence\n  \"confidenceScore\": number,     // confidence between 0 and 1\n  \"assumptions\": string[],       // assumptions you made\n  \"recommendedAction\": string    // recommended next action for the on-call engineer\n}\n\nFormatting rules (must follow strictly):\n\n1. rootCause\n- Maximum 150 words.\n- Explain only the primary root cause.\n- Keep the explanation concise and actionable.\n\n2. javaFix\n- Maximum 150 words.\n- Provide only the essential Java/Spring Boot code changes.\n- Do not include lengthy explanations or imports unless absolutely necessary.\n\n3. unitTest\n- Maximum 2 lines.\n- Return only the most important JUnit test covering the identified issue.\n- Omit package declarations and unnecessary imports whenever possible.\n\n4. bestPractice\n- Maximum 5 bullet points.\n- Each bullet should be one short sentence.\n\n5. assumptions\n- Return an array containing a maximum of 5 assumptions.\n- Each assumption must be one concise sentence.\n\n6. recommendedAction\n- Maximum 50 words.\n- Give one clear next action for the on-call engineer.\n\n7. confidenceScore\n- Return only a decimal number between 0 and 1.\n\nKeep every field concise. Avoid repetition and unnecessary details."
+        }
+      },
+      "id": "792ee621-25ec-49cc-a94a-715a9eb4b28b",
+      "name": "AI Agent (Gemini)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        896,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {}
+      },
+      "id": "fe838eeb-4d59-457f-bf4e-bd7b35e591dc",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        976,
+        336
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": null,
+          "name": "n8n Connect",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "let raw = $json.output;\nif (raw === undefined || raw === null) raw = $json.text;\nlet text = typeof raw === 'string' ? raw : JSON.stringify(raw || {});\ntext = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/,'').trim();\nlet parsed = {};\nlet ok = true;\ntry { parsed = JSON.parse(text); } catch (e) { ok = false; }\n\nconst rootCause = parsed.rootCause || parsed.root_cause || null;\nconst recommendedAction = parsed.recommendedAction || parsed.recommended_action || null;\n\nlet score = Number(parsed.confidenceScore != null ? parsed.confidenceScore : parsed.confidence_score);\nif (isNaN(score)) score = 0;\nif (score > 1) score = 1;\nif (score < 0) score = 0;\n\nlet assumptions = parsed.assumptions;\nif (Array.isArray(assumptions)) assumptions = JSON.stringify(assumptions);\nelse if (assumptions == null) assumptions = null;\nelse assumptions = String(assumptions);\n\nconst valid = ok && !!rootCause && !!recommendedAction;\n\nreturn {\n  json: {\n    id : $('Insert Failure').first().json.id,\n    root_cause: rootCause,\n    java_fix: parsed.javaFix || parsed.java_fix || null,\n    unit_test: parsed.unitTest || parsed.unit_test || null,\n    best_practice: parsed.bestPractice || parsed.best_practice || null,\n    confidence_score: score,\n    assumptions: assumptions,\n    recommended_action: recommendedAction,\n    parse_status: valid ? 'COMPLETED' : 'FAILED',\n  },\n};"
+      },
+      "id": "83d2ed54-22d7-49b3-9db6-c5589ddbdc17",
+      "name": "Parse and Filter Agent Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "name",
+          "value": "monitoring"
+        },
+        "table": {
+          "__rl": true,
+          "value": "api_failure_logs",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "root_cause": "={{ $json.root_cause }}",
+            "java_fix": "={{ $json.java_fix }}",
+            "unit_test": "={{ $json.unit_test }}",
+            "best_practice": "={{ $json.best_practice }}",
+            "confidence_score": "={{ $json.confidence_score }}",
+            "assumptions": "={{ $json.assumptions }}",
+            "recommended_action": "={{ $json.recommended_action }}",
+            "ai_status": "={{ $json.parse_status }}",
+            "id": "={{ $json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "service_name",
+              "displayName": "service_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "endpoint",
+              "displayName": "endpoint",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "http_method",
+              "displayName": "http_method",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "status_code",
+              "displayName": "status_code",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "severity",
+              "displayName": "severity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "error_message",
+              "displayName": "error_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "request_payload",
+              "displayName": "request_payload",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "ai_status",
+              "displayName": "ai_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "root_cause",
+              "displayName": "root_cause",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "java_fix",
+              "displayName": "java_fix",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "unit_test",
+              "displayName": "unit_test",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "best_practice",
+              "displayName": "best_practice",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "confidence_score",
+              "displayName": "confidence_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "assumptions",
+              "displayName": "assumptions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "recommended_action",
+              "displayName": "recommended_action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "ac10e719-278a-403d-9f6b-3c7c17c45ead",
+      "name": "Insert AI Analysis",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1472,
+        112
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "xmVUSApAmFKzx7Bb",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "severity-high",
+              "leftValue": "={{ $('Calculate Severity').item.json.severity }}",
+              "rightValue": "HIGH",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b615d03c-125e-4e08-bee3-8d75c3143771",
+      "name": "IF Severity Is HIGH",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1696,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "pshiv2009@gmail.com",
+        "subject": "=[HIGH SEVERITY] API failure in {{ $('Calculate Severity').item.json.serviceName }} ({{ $('Calculate Severity').item.json.statusCode }})",
+        "message": "=<h2>High Severity API Incident</h2>\n<ul>\n<li><b>Service:</b> {{ $('Calculate Severity').item.json.serviceName }}</li>\n<li><b>Endpoint:</b> {{ $('Calculate Severity').item.json.method }} {{ $('Calculate Severity').item.json.endpoint }}</li>\n<li><b>Status Code:</b> {{ $('Calculate Severity').item.json.statusCode }}</li>\n<li><b>Severity:</b> {{ $('Calculate Severity').item.json.severity }}</li>\n<li><b>Failure ID:</b> {{ $('Insert Failure').item.json.id }}</li>\n<li><b>Error:</b> {{ $('Calculate Severity').item.json.errorMessage }}</li>\n</ul>\n<h3>AI Analysis</h3>\n<p><b>Root Cause:</b> {{ $('Parse and Filter Agent Output').item.json.root_cause }}</p>\n<p><b>Recommended Action:</b> {{ $('Parse and Filter Agent Output').item.json.recommended_action }}</p>\n<p><b>Confidence:</b> {{ $('Parse and Filter Agent Output').item.json.confidence_score }}</p>\n<pre><b>Suggested Java Fix:</b>\n{{ $('Parse and Filter Agent Output').item.json.java_fix }}</pre>\n<pre><b>Unit Test:</b>\n{{ $('Parse and Filter Agent Output').item.json.unit_test }}</pre>\n<p><b>Best Practice:</b> {{ $('Parse and Filter Agent Output').item.json.best_practice }}</p>",
+        "options": {}
+      },
+      "id": "65885cbb-d483-4f81-8571-fa1913380461",
+      "name": "Send Gmail Notification",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        32
+      ],
+      "webhookId": "ba9d7a75-a380-4b1d-8383-8d447bd379eb",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "70XK0r2GIm1lRMPW",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"processed\", \"failureId\": $('Insert Failure').item.json.id, \"severity\": $('Calculate Severity').item.json.severity, \"aiStatus\": $('Parse and Filter Agent Output').item.json.parse_status, \"rootCause\": $('Parse and Filter Agent Output').item.json.root_cause, \"recommendedAction\": $('Parse and Filter Agent Output').item.json.recommended_action, \"confidenceScore\": $('Parse and Filter Agent Output').item.json.confidence_score } }}",
+        "options": {}
+      },
+      "id": "9d67e6a8-bcb9-4d70-9db5-78c0efe61e02",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2144,
+        112
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Request": {
+      "main": [
+        [
+          {
+            "node": "Calculate Severity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Severity": {
+      "main": [
+        [
+          {
+            "node": "Insert Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Failure": {
+      "main": [
+        [
+          {
+            "node": "AI Agent (Gemini)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent (Gemini)": {
+      "main": [
+        [
+          {
+            "node": "Parse and Filter Agent Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent (Gemini)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse and Filter Agent Output": {
+      "main": [
+        [
+          {
+            "node": "Insert AI Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert AI Analysis": {
+      "main": [
+        [
+          {
+            "node": "IF Severity Is HIGH",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Severity Is HIGH": {
+      "main": [
+        [
+          {
+            "node": "Send Gmail Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Gmail Notification": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "0bc5df10-abe6-41b3-aba1-c68a56ef1c6e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9a4283858c71ac1735e98b4c413c34a09f1e3880925f2cee12108898da4a81af"
+  },
+  "nodeGroups": [],
+  "id": "zuGwCSA7gadO23j5",
+  "tags": []
+}
